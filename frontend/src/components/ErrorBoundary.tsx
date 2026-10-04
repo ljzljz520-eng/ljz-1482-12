@@ -1,35 +1,27 @@
-import { Component, ErrorInfo, ReactNode } from "react";
-import { toast } from "react-hot-toast";
-
-interface Props {
-  children: ReactNode;
-}
+import { Component, ReactNode } from "react";
 
 interface State {
-  hasError: boolean;
+  error: Error | null;
 }
 
-class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false };
+export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: Error): State {
+    return { error };
   }
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
-  }
-
-  componentDidCatch(): void {
-    toast.error("页面出现小问题，已为你记录。");
-  }
-
-  render() {
-    if (this.state.hasError) {
+  render(): ReactNode {
+    if (this.state.error) {
       return (
-        <div className="min-h-[60vh] flex items-center justify-center bg-white">
-          <div className="max-w-md text-center space-y-4">
-            <p className="text-3xl font-semibold text-slate-900">出错了</p>
-            <p className="text-slate-500">请刷新页面或返回首页。</p>
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="card p-8 max-w-md text-center">
+            <div className="text-2xl mb-2">😵</div>
+            <h2 className="text-lg font-semibold mb-1">页面出现异常</h2>
+            <p className="text-sm text-slate-500 mb-4">{this.state.error.message}</p>
+            <button className="btn-primary" onClick={() => window.location.reload()}>
+              刷新页面
+            </button>
           </div>
         </div>
       );
@@ -37,5 +29,3 @@ class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
-
-export default ErrorBoundary;

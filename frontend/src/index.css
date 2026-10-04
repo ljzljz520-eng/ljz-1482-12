@@ -6,29 +6,52 @@
   color-scheme: light;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
-  margin: 0;
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: radial-gradient(circle at 20% 20%, rgba(22, 93, 255, 0.06), transparent 26%),
-    radial-gradient(circle at 80% 10%, rgba(255, 125, 0, 0.08), transparent 22%),
-    #f8fafc;
-  color: #0f172a;
+  @apply bg-slate-100 text-slate-800 antialiased;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background-image: radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(900px 500px at 110% 0%, rgba(14, 165, 233, 0.1), transparent 55%);
+  background-attachment: fixed;
 }
 
-* {
-  scroll-behavior: smooth;
-}
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(120deg, #165dff, #ff7d00);
-  border-radius: 999px;
-}
-
-::selection {
-  background: rgba(22, 93, 255, 0.2);
+@layer components {
+  .card {
+    @apply rounded-2xl bg-white/90 backdrop-blur shadow-card border border-slate-200/70;
+  }
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 select-none
+      disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.97];
+  }
+  .btn-primary {
+    @apply btn bg-indigo-600 text-white hover:bg-indigo-500 shadow-sm shadow-indigo-200;
+  }
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+  .btn-danger {
+    @apply btn bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100;
+  }
+  .btn-warn {
+    @apply btn bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none transition
+      focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 placeholder:text-slate-400;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full;
+  }
 }

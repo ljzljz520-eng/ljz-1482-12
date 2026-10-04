@@ -1,16 +1,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import App from "./App";
 import "./index.css";
 
-const root = document.getElementById("root");
-
-if (!root) {
-  throw new Error("Root container missing in index.html");
-}
-
-ReactDOM.createRoot(root).render(
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
-  </React.StrictMode>
+    <BrowserRouter>
+      <App />
+      <Toaster position="top-right" toastOptions={{ style: { borderRadius: 12, fontSize: 13 } }} />
+    </BrowserRouter>
+  </React.StrictMode>,
 );

@@ -1,66 +1,109 @@
-# 云溪公园简介站点
+# ScriptStudio · 协作拆场工作台（ScriptEditor 全栈协作）
+
+面向视频脚本的多人协作编辑器：在网页上编辑**旁白、台词、镜头与时长**，对场次进行**拆分 / 合并 / 迁移 / 删除**。
+所有操作通过 API 以**不可变修订**持久化到 PostgreSQL；场次、角色、字幕锚点、素材区间全部通过**稳定身份（id）**互相引用，
+而不是数组下标。结构竞态（典型：*甲拆场、乙删除原场*）不会静默丢内容，而是进入**显式冲突裁决**。
 
 ## 🛠 技术栈
-- Frontend: React 18 + TypeScript 5.2 + Vite 5 + Tailwind CSS 3.4 + Zustand + React Router
-- Backend: （本项目为前端静态站点，可直接部署，无独立后端）
-- Database: （前端展示站点，无数据库依赖）
 
-## 🚀 启动指南 (How to Run)
-1. 确保 Docker Desktop 已启动。
-2. 在根目录执行：`docker compose up --build`
-3. 等待容器启动完成后访问 `http://localhost:3000`
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Zustand + Zod + react-hot-toast + lucide-react
+- **Backend**: Node.js 20 + Fastify + Drizzle ORM（node-postgres）+ Zod
+- **Database**: PostgreSQL 16（修订只追加日志 + 规范化实体表 + FK 约束）
+- **测试**: Vitest（17 条引擎语义测试 + 1 条 embedded-postgres 真实数据库集成测试）
 
-## 🔗 服务地址 (Services)
-- Frontend: http://localhost:3000
-- Backend Swagger: （无后端）
-- Database: （无）
+## 🚀 启动指南
 
-## 🧪 测试账号
-- Admin: admin / 123456
+1. 确保 Docker Desktop / Docker Engine 已启动。
+2. 在仓库根目录执行：
+   ```bash
+   docker compose up --build
+   ```
+3. 首次启动后端会自动执行数据库迁移并写入演示脚本（无需手工建表）。
 
----
+## 🔗 服务地址
 
-## 🐳 Docker 镜像源配置 (Docker Registry Configuration)
+| 服务 | 地址 |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:3001 （健康检查 `/health`） |
+| PostgreSQL | localhost:5432 （user/pass/db: `script` / `script` / `scriptstudio`） |
 
-### 推荐配置（基于实际项目验证）
+打开前端后进入演示脚本《云溪公园宣传片 · 脚本 v3》。右上角可切换**身份（甲/乙）**与**在线/离线**，用于复现协作与断线场景。
 
-#### 1. Docker 镜像源
-**使用官方 Docker Hub 镜像**（已验证稳定可用）
+## 📚 协作策略选型：为什么是「修订日志 + 乐观并发 + 显式合并」
 
-```yaml
-# docker-compose.yml 示例
-services:
-  frontend:
-    build: ./frontend
-    image: node:20-alpine
+题目要求在三类方案中选定一种，并说明其对**拆场这种结构操作**的支持边界：
+
+| 方案 | 对文本并发 | 对「拆分 / 合并 / 删除」结构操作 | 结论 |
+|---|---|---|---|
+| **OT（操作变换）** | 成熟（需中心化变换函数） | 变换算子对结构操作**不封闭**：split × delete、merge × split 没有公认的可逆变换，服务端仍需特殊裁决；实现复杂度与出错面极大 | ✗ |
+| **CRDT（协同数据结构）** | 身份合并天然无冲突、可离线 | 能保证"集合收敛一致"，但**业务语义上无解**：原场被删时，挂在它身上的子场到底算不算数？CRDT 会给出一个收敛结果，但可能是"悄悄复活/悄悄消失"，违背"禁止无声丢内容" | ✗ |
+| **修订日志 + OCC + 显式合并（本项目）** | 内容编辑基于 `baseRev` 乐观提交；过期时在最新修订上 **rebase 重放**并在响应里显式标记 `rebased` | 结构操作由服务端作为**唯一序列化点**顺序应用；无法自动判定的结构竞态**提升为显式 Conflict**，由用户在冲突中心裁决，所有内容被保留到隔离区 | ✅ 选定 |
+
+**对拆场操作的支持边界（明确声明）：**
+
+1. 可以自动处理的：镜头/素材按切点路由、字幕锚点跟随其引用实体的稳定身份、后半段时间线平移、非相邻拒绝、节点迁移后引用不漂移、断线重复提交幂等、内容字段并发 rebase。
+2. **不做**自动自动合并的：删除一个已被他人拆分的原场、或对一个已被删除的原场提交拆分——这两种情况产生 `delete_has_children` / `split_deleted_parent` 冲突，由人选择「采用拆分」或「采用删除」。系统保证**两种选择都不丢内容**（软删除 + 修订证据可追溯）。
+3. 撤销不是 CRDT 式回滚，而是**针对本人某个已成功意图的逆向操作**，在服务端校验"此后是否有他人改动"，有则拒绝，避免把他人后来写的台词一并抹去。
+
+## 🧱 数据模型（稳定身份，而非下标）
+
+- `scripts`：脚本头与当前 `head_rev`，`seed` 保存建档快照。
+- `scenes / lines / shots / materials / anchors / characters`：规范化实体表。
+  - 场次之间没有父子数组；拆场通过 `parent_scene_id` 记录血缘，`deleted` 为软删除标记。
+  - 台词 → 角色、字幕锚点 → 台词/镜头、镜头/素材 → 场次，**全部是 id 外键**（数据库层 FK + 引擎层引用完整性断言双重保证）。
+- `revisions`：**只追加**修订日志。唯一键 `(script_id, op_id)` 提供幂等；唯一键 `(script_id, seq)` 保证顺序。
+  - 无论 accepted / blocked / conflict 都占一个修订号，保存操作 payload（含编辑前旧值 `before`、合并成员 `members`、移动前位置 `fromIndex`）与结果——这是变更证据链。
+
+## 🔀 关键交互语义
+
+- **拆场**：切点按镜头累计时长选择；镜头完整落上/下半场，**跨切点**镜头与素材区间标记 `needs_repair`；
+  每条台词必须显式选择上/下半场归属，未选进入待修复；锚点跟随其引用的镜头/台词迁移，下半场锚点时间线整体平移；
+  角色是全局身份，不复制不改 id。
+- **合并**：仅允许时间线相邻的场次；引用随稳定身份迁入合并场，拆场造成的待修复标记自动愈合；payload 记录成员归属作为撤销证据。
+- **迁移**：只改场次顺序，台词/镜头/素材/锚点零改动（它们只认 sceneId）。
+- **撤销**：只能撤销自己的 accepted 修订；同一字段此后被他人改过 → `FIELD_CONCURRENT_CHANGE` 拒绝；
+  拆出的子场被他人编辑过 → `OTHERS_EDITED_CHILD` 拒绝；结构修订之后又有新的结构操作 → `STRUCT_SUPERSEDED` 拒绝。
+
+## ✅ 验收点对照（建议操作路径）
+
+在右上角可直接切换**身份**与**在线/离线**。右侧面板含「修订 / 冲突中心 / 待修复 / 协作日志」四个标签。
+
+1. **并发调整时长**：身份甲把镜头时长改 9000；身份乙基于旧 rev 修改同一镜头描述（可用离线→在线模拟）。
+   两者都保留，乙的响应带 `rebased: true` 与日志提示；预览卡合计随修订增长。
+2. **断线重复提交**：客户端为每个意图生成固定 `opId`，失败重试发送同一 `opId`，服务端返回 `duplicate: true` 与同一修订号，不产生第二条记录。
+3. **节点迁移后旧响应晚到**：在「协作日志」点「模拟：旧预览响应晚到（2.5s）」，期间移动/编辑场次；
+   晚到响应的 `rev` 落后于已知修订，被前端丢弃并记录日志，画面保持最新。
+4. **合计与预览同一修订**：编辑区合计与预览卡来自同一份 `preview` 响应，顶栏与卡片同时显示 `rev`。
+5. **离线：甲拆场、乙删除原场**：
+   - 甲离线（或基于旧 rev）对某场拆分；乙在线删除该原场；甲恢复联网提交。
+   - 结果：`status: conflict`、`kind: split_deleted_parent`，拆出内容进入 `pending_orphan` 隔离区（仍可见）。
+   - 在冲突中心选择「采用拆分」（恢复子场）或「采用删除」（软删除子场，证据保留）。
+   - 在线竞态（甲先拆成功，乙再删原场）则产生 `delete_has_children`，删除不生效，等待裁决。
+6. **服务端校验与证据**：负时长/非法字段/指向不存在场次的修复都会被拒绝（blocked），修订日志保留请求与原因。
+7. **保存失败的可见草稿**：断网点「离线」后编辑，顶栏显示「离线 · 仅本地草稿（未同步）」；
+   草稿存于 `localStorage`（按 脚本+身份 隔离），**只有服务器确认该 opId 后才从队列移除**——本地缓存绝不会被提前标记为已同步；
+   失败后可「重试保存」或「放弃草稿」。
+
+## 🧪 测试
+
+```bash
+cd backend
+npm test                     # 引擎语义测试（内存仓储，无需数据库）
+RUN_PG_TEST=1 npm test       # 额外启动 embedded-postgres 验证真实 SQL/事务/FK
 ```
 
-#### 2. npm 依赖源
-**使用淘宝镜像**（国内访问快）
+## 📂 目录
 
-在 `Dockerfile` 中添加：
-```dockerfile
-RUN npm config set registry https://registry.npmmirror.com
 ```
-
-### 常用镜像推荐
-
-| 技术栈 | 推荐镜像 | 说明 |
-|--------|---------|------|
-| Node.js | `node:20-alpine` | 前端构建 |
-| Nginx | `nginx:alpine` | 前端生产环境 |
-
-### 使用建议
-
-1. ✅ **优先使用官方镜像**：稳定可靠，无需配置镜像代理
-2. ✅ **使用 Alpine 版本**：镜像体积小，构建速度快
-3. ✅ **配置 npm 淘宝源**：加速国内依赖下载
-4. ✅ **多阶段构建**：减小最终镜像体积
-
-### 常见问题
-
-**Q: Docker 镜像拉取失败？**  
-A: 检查网络连接，确保 Docker Desktop 正常运行
-
-**Q: npm install 很慢？**  
-A: 确保已配置淘宝镜像源：`npm config set registry https://registry.npmmirror.com`
+backend/
+  src/domain/   引擎（纯函数 applyOp）、类型、仓储端口、内存适配器、服务（锁/幂等/rebase）
+  src/db/       Drizzle schema、迁移、PgRepository、seed
+  src/api/      Fastify 路由与 Zod 校验
+  src/test/     引擎测试 + 真实 PG 集成测试
+frontend/
+  src/api/      REST 客户端与类型
+  src/store/    Zustand 协作状态机（队列、离线草稿、旧响应守卫、轮询）
+  src/pages/    脚本列表、编辑器
+  src/components/ 顶栏 / 场次卡 / 拆场合约弹窗 / 预览卡 / 侧栏（修订·冲突·待修复·日志）
+```
