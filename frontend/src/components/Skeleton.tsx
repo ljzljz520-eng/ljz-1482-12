@@ -1,5 +1,5 @@
-const Skeleton = ({ height = "h-4", className = "" }: { height?: string; className?: string }) => (
-  <div className={`animate-pulse rounded-full bg-slate-200/70 ${height} ${className}`} />
+const Skeleton = ({ className = "h-4" }: { className?: string }) => (
+  <div className={`animate-pulse rounded-xl bg-slate-200/70 ${className}`} />
 );
 
 export default Skeleton;

@@ -1,0 +1,173 @@
+// 协同脚本拆场服务 - 数据模型
+// 设计要点：
+// 1. SceneNode / Element / Anchor / MediaRange 均持有稳定身份(id)，拆场/合场不依赖数组下标。
+// 2. Revision 为仅追加的修订日志（事件溯源），保留变更证据与 rebase/undo 指纹。
+// 3. MergeConflict 持久化待修复冲突，绝不无声丢内容；冲突携带原始操作快照。
+// 4. Draft 为显式"未同步"的本地草稿备份，与已提交修订严格区分。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Script {
+  id           String   @id @default("demo-script")
+  title        String
+  description  String
+  headSeq      Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  revisions    Revision[]
+  scenes       SceneNode[]
+  characters   Character[]
+  conflicts    MergeConflict[]
+  drafts       Draft[]
+}
+
+model Revision {
+  id          String   @id @default(cuid())
+  scriptId    String
+  seq         Int
+  opId        String   @unique
+  kind        String
+  authorId    String
+  authorName  String
+  summary     String
+  baseSeq     Int
+  // 变更证据：原操作、触碰身份、指纹、rebase 记录
+  payload     Json
+  touched     Json
+  fingerprints Json
+  rebasedFrom Int?
+  rebasedOnto Int[]    @default([])
+  undoneBy    String?
+  undoable    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  script      Script   @relation(fields: [scriptId], references: [id])
+
+  @@unique([scriptId, seq])
+  @@index([scriptId, seq])
+}
+
+model SceneNode {
+  id        String  @id
+  scriptId  String
+  orderIdx  Float
+  title     String
+  deletedAt DateTime?
+  // 软删除来源冲突（如：乙删除原场，甲对其拆场）
+  deleteReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  script    Script  @relation(fields: [scriptId], references: [id])
+  elements  Element[]
+
+  @@index([scriptId, orderIdx])
+}
+
+model Element {
+  id        String  @id
+  scriptId  String
+  sceneId   String?
+  // 拆场迁移时保留原场线索，便于冲突修复
+  originSceneId String?
+  kind      String  // narration | dialogue | shot
+  roleId    String? // 台词角色
+  content   String
+  durationSec Float @default(0)
+  orderIdx  Float
+  needsReview Boolean @default(false)
+  reviewReason String?
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scene     SceneNode? @relation(fields: [sceneId], references: [id])
+  anchors   SubtitleAnchor[]
+  ranges    MediaRange[]
+
+  @@index([sceneId, orderIdx])
+}
+
+model Character {
+  id        String  @id
+  scriptId  String
+  name      String
+  color     String
+  orderIdx  Float
+  deletedAt DateTime?
+  script    Script  @relation(fields: [scriptId], references: [id])
+}
+
+model SubtitleAnchor {
+  id          String @id
+  scriptId    String
+  elementId   String?
+  // 锚点身份稳定；被引用元素迁移/删除时进入待修复，而非跟随下标错位
+  targetElementId String?
+  code        String
+  text        String
+  timeMs      Float
+  status      String @default("ok") // ok | broken | review
+  note        String?
+  deletedAt   DateTime?
+
+  element     Element? @relation(fields: [elementId], references: [id], onDelete: SetNull)
+
+  @@index([elementId])
+}
+
+model MediaRange {
+  id          String @id
+  scriptId    String
+  elementId   String?
+  assetId     String
+  label       String
+  startMs     Float
+  endMs       Float
+  status      String @default("ok") // ok | review（跨越拆分边界等）
+  note        String?
+  deletedAt   DateTime?
+
+  element     Element? @relation(fields: [elementId], references: [id], onDelete: SetNull)
+
+  @@index([elementId])
+}
+
+model MergeConflict {
+  id         String   @id @default(cuid())
+  scriptId   String
+  opId       String   @unique
+  kind       String   // field | split_vs_delete | merge_vs_delete | delete_vs_edit | missing_identity
+  status     String   @default("pending") // pending | resolved | discarded
+  // 原操作完整保存，冲突解决前不丢任何意图
+  op         Json
+  authorId   String
+  authorName String
+  baseSeq    Int
+  detail     Json
+  resolution String?
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  script     Script   @relation(fields: [scriptId], references: [id])
+}
+
+model Draft {
+  id         String   @id @default(cuid())
+  scriptId   String
+  userId     String
+  content    Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  script     Script   @relation(fields: [scriptId], references: [id])
+
+  @@unique([scriptId, userId])
+}

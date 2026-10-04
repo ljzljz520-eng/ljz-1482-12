@@ -9,3 +9,6 @@ backend/dist
 **/.DS_Store
 **/coverage
 **/.turbo
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+frontend/tsconfig.node.tsbuildinfo
